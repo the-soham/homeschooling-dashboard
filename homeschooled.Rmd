@@ -1,0 +1,172 @@
+---
+title: "Home Schooling in the United States"
+output: 
+  flexdashboard::flex_dashboard:
+    theme: yeti
+    social: menu
+    orientation: columns
+    vertical_layout: fill
+engine: shiny
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+library(ggstance)
+library(ggalt)
+library(plotly)
+library(shiny)
+library(highcharter)
+#library(scales)
+
+# Read the dataset
+schools <- read.csv('https://raw.githubusercontent.com/washingtonpost/data_home_schooling/main/home_school_district.csv')
+
+# Remove the second column (you mentioned -2)
+schools <- schools[, -2]
+
+# Function to extract the first year from the academic year
+extract_first_year <- function(academic_year) {
+  first_year <- as.numeric(strsplit(academic_year, "-")[[1]][1])
+  return(first_year)
+}
+
+# Apply the extraction function to the 'year' column
+schools$year <- sapply(schools$year, extract_first_year)
+schools$homeschool_students[is.na(schools$homeschool_students)] <- 0
+
+str(schools)
+# Group by year and calculate the sum of homeschool_students
+schools_summarized <- schools %>%
+  group_by(year) %>%
+  summarise(total_homeschool_students = sum(homeschool_students, na.rm = TRUE))
+
+
+str(schools_summarized)
+
+# Assuming your data frame is named 'schools'
+top_states <- schools %>%
+  group_by(state) %>%
+  summarise(total_homeschool_students = sum(homeschool_students, na.rm = TRUE)) %>%
+  arrange(desc(total_homeschool_students)) %>%
+  head(5)
+
+
+all_states <- unique(schools$state)
+all_districts <- unique(schools$lea_name)
+
+```
+
+Inputs {.sidebar}
+==================================
+
+The Washington Post is compiling a database of from individual school districts and states as a whole regarding home-school enrollment from 2017-18 through 2022-23 in the United States and has made that database [publicly available on GitHub](https://github.com/washingtonpost/data_home_schooling/). Their own visualizations and reporting are [online here](https://www.washingtonpost.com/education/interactive/2023/homeschooling-growth-data-by-district/), and this dashboard presents the same data. 
+
+Author : [Soham Bhagwat](sohambhagwat.tech)
+
+----------------------------------
+
+```{r}
+selectInput("state_dropdown", label = "Select State", choices = all_states, selected = all_states[1])
+selectInput("district_dropdown", label = "Select School District", choices = all_districts, selected = all_districts[1])
+
+observeEvent(input$state_dropdown, {
+  selected_state <- input$state_dropdown
+  filtered_districts <- schools %>% filter(state == selected_state)
+  
+  # Update the district dropdown
+  updateSelectInput(session, "district_dropdown", choices = unique(filtered_districts$lea_name))
+})
+
+
+```
+
+Insights {data-icon="fa-users"} 
+=====================================  
+
+Row
+-------------------------------------
+   
+### Home schooled children over the years
+
+```{r}
+p <- ggplot(schools_summarized, aes(x = year, y = total_homeschool_students)) +
+  geom_line(color = "blue") +
+  geom_point(color = "red") +
+  labs(x = "Year",
+       y = "Total Homeschooled Children") +
+  scale_y_continuous(labels = scales::label_number(scale = 1e-3, suffix = "k")) +
+  theme_minimal()
+
+# Convert ggplot to interactive plot using plotly
+p <- ggplotly(p)
+
+p
+
+```
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Top 5 states with highest homeschooling
+
+```{r}
+output$bar_chart_states <- renderHighchart({
+  highchart() %>%
+    hc_chart(type = "bar") %>%
+    hc_xAxis(categories = top_states$state) %>%
+    hc_yAxis(title = list(text = "Total Homeschooled Children")) %>%
+    hc_tooltip(valueDecimals = 0) %>%
+    hc_plotOptions(bar = list(dataLabels = list(enabled = TRUE))) %>%
+    hc_colors("#3498db") %>%
+    hc_add_series(name = "Total Homeschooled Children", data = top_states$total_homeschool_students)
+})
+highchartOutput("bar_chart_states")
+```
+
+### Homeschooled children by School Districts for a given State.
+
+```{r}
+# Define a reactive expression to filter data based on user inputs
+filtered_data <- reactive({
+  selected_state <- input$state_dropdown
+  selected_district <- input$district_dropdown
+  schools %>%
+    filter(state == selected_state, lea_name == selected_district)
+})
+
+library(highcharter)
+# Create an interactive bar chart for the selected school district
+output$bar_chart_district <- renderHighchart({
+  highchart() %>%
+    hc_chart(type = "column") %>%
+    hc_title(text = paste("State:", input$state_dropdown, ", School District:", input$district_dropdown)) %>%
+    hc_xAxis(categories = filtered_data()$year) %>%
+    hc_yAxis(title = list(text = "Homeschooled Children")) %>%
+    hc_tooltip(valueDecimals = 0) %>%
+    hc_add_series(name = "Homeschooled Children", data = filtered_data()$homeschool_students, colorByPoint = TRUE) %>%
+    hc_plotOptions(column = list(dataLabels = list(enabled = TRUE, color = "white"))) %>%
+    hc_colors("#3498db") %>%
+    hc_legend(enabled = FALSE)
+})
+
+highchartOutput("bar_chart_district")
+```
+
+About {data-icon="fa-question"} 
+=====================================  
+This application was developed by [Soham Bhagwat](sohambhagwat.tech) to find the trends in the homeschooling in the United States.
+
+The data is collected by [Washington Post](https://www.washingtonpost.com/) and is available [here](https://github.com/washingtonpost/data_home_schooling/).
+
+The application is built with the [Shiny](http://shiny.rstudio.com) framework for the [R programming language](https://www.r-project.org/). The application layout is produced with the [flexdashboard](http://rstudio.github.io/flexdashboard/index.html) package, and the charts and maps use [Plotly](http://plot.ly), [Highcharts](http://www.highcharts.com/), and [ggplot2](http://ggplot2.org/), all accessed through their corresponding R packages.
+
+
+To learn more about my work, [visit my website](https://sohambhagwat.tech) or [connect with me on Linkedin](https://www.linkedin.com/in/soham-bhagwat/).
+
+I'm actively looking for entry level Data Scientist and Data Engineer roles and my resume can be found [here](https://www.sohambhagwat.tech/pdf/Soham_Bhagwat.pdf) or the best way to reach me is via [email](sohambhagwat2@gmail.com) 
+
+
